@@ -145,6 +145,31 @@ app.get('/api/filter', (req, res) => {
     });
 });
 
+// --- [API MỚI] 6. LẤY THÔNG TIN PROFILE ---
+// URL: /api/profile/1  (Số 1 là user_id)
+app.get('/api/profile/:id', (req, res) => {
+    const userId = req.params.id; // Lấy ID từ trên link
+
+    if (!userId) return res.status(400).json({ message: "Thiếu User ID", success: false });
+
+    const sql = "SELECT * FROM users WHERE user_id = ?";
+    pool.query(sql, [userId], (err, results) => {
+        if (err) return res.status(500).json({ error: err.message, success: false });
+
+        if (results.length > 0) {
+            const user = results[0];
+            delete user.password; // Bảo mật: Không trả về password
+
+            res.json({
+                success: true,
+                user: user // Trả về object user
+            });
+        } else {
+            res.status(404).json({ message: "Không tìm thấy user này!", success: false });
+        }
+    });
+});
+
 // --- 4. KHỞI CHẠY ---
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
