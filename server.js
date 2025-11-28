@@ -1,30 +1,27 @@
-// server.js - Backend chuẩn cho App Food Delivery
-// Code by Gemini - For Student Project
-
 const express = require('express');
 const mysql = require('mysql2');
 const cors = require('cors');
 const app = express();
 
-// --- CẤU HÌNH ---
-app.use(cors()); // Cho phép Android gọi API
-app.use(express.json()); // Cho phép đọc JSON từ Body
+// --- 1. CẤU HÌNH ---
+app.use(cors()); // Cho phép Android gọi vào
+app.use(express.json()); // Để đọc JSON từ body request
 
-// --- KẾT NỐI DATABASE (Aiven MySQL) ---
+// --- 2. KẾT NỐI DATABASE (AIVEN) ---
 // ⚠️ QUAN TRỌNG: Thay thông tin của mày vào đây
 const pool = mysql.createPool({
-    host: 'demo-mysql-thang-ban.aivencloud.com', // 1. Host
+    host: 'mysql-ngbao261205-ngbao261205-6e4d.c.aivencloud.com', // 1. Host
     user: 'avnadmin',                              // 2. User
-    password: 'password_cua_may',                  // 3. Password (Aiven)
+    password: 'AVNS_F_EwcCD-7paNho7tIMg',                  // 3. Password (Aiven)
     database: 'food_delivery_db',                  // 4. Tên DB
-    port: 26379,                                   // 5. Port
+    port: 11429,                                     // <-- Thay PORT (thường là 26379 hoặc số khác)
     ssl: { rejectUnauthorized: false },            // Bắt buộc với Aiven
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0
 });
 
-// Kiểm tra kết nối khi khởi động
+// Test kết nối ngay khi chạy server
 pool.getConnection((err, connection) => {
     if (err) {
         console.error('❌ Lỗi kết nối Database:', err.message);
@@ -34,62 +31,59 @@ pool.getConnection((err, connection) => {
     }
 });
 
-// --- CÁC API (Endpoints) ---
+// --- 3. CÁC API (ENDPOINTS) ---
 
-// 0. Trang chủ (Để kiểm tra Server sống hay chết)
+// [API 0] Trang chủ (Để fix lỗi Cannot GET /)
 app.get('/', (req, res) => {
-    res.send(`
-        <h1 style="color: green; text-align: center; margin-top: 20%;">
-            🚀 Server Food App Đang Chạy Ngon Lành!
-        </h1>
-        <p style="text-align: center;">Base URL: <b>${req.protocol}://${req.get('host')}</b></p>
-    `);
+    res.send('<h1 style="color:green; text-align:center">🚀 Server Food App đang chạy ngon lành!</h1>');
 });
 
-// 1. ĐĂNG KÝ (Register)
-// Input: { "username": "...", "password": "...", "full_name": "...", "phone": "..." }
+// [API 1] ĐĂNG KÝ
+// URL: /api/register
+// Body: { "username": "a", "password": "b", "full_name": "c", "phone": "d" }
 app.post('/api/register', (req, res) => {
     const { username, password, full_name, phone } = req.body;
 
-    // Validate dữ liệu cơ bản
+    // Validate
     if (!username || !password) {
-        return res.status(400).json({ message: "Thiếu tài khoản hoặc mật khẩu!" });
+        return res.status(400).json({ message: "Thiếu username hoặc password!", success: false });
     }
 
-    // Role mặc định là 'customer'
+    // Insert vào bảng 'users'
+    // Mặc định role là 'customer'
     const sql = "INSERT INTO users (username, password, full_name, phone, role) VALUES (?, ?, ?, ?, 'customer')";
 
     pool.query(sql, [username, password, full_name, phone], (err, result) => {
         if (err) {
-            // Lỗi trùng username (Duplicate entry)
+            // Lỗi trùng username
             if (err.code === 'ER_DUP_ENTRY') {
-                return res.status(409).json({ message: "Tài khoản này đã có người dùng!" });
+                return res.status(409).json({ message: "Tài khoản đã tồn tại!", success: false });
             }
-            return res.status(500).json({ error: "Lỗi Server: " + err.message });
+            return res.status(500).json({ error: err.message, success: false });
         }
-        res.json({ message: "Đăng ký thành công! Vui lòng xác thực OTP.", success: true });
+        res.json({ message: "Đăng ký thành công! Vui lòng nhập OTP.", success: true });
     });
 });
 
-// 2. XÁC THỰC OTP (Giả lập)
-// Input: { "otp": "123456" }
+// [API 2] XÁC THỰC OTP (Giả lập)
+// URL: /api/verify-otp
+// Body: { "otp": "123456" }
 app.post('/api/verify-otp', (req, res) => {
     const { otp } = req.body;
-    // Hard-code OTP là 123456 để test cho lẹ
-    if (otp && otp === "123456") {
+    if (otp === "123456") {
         res.json({ message: "Kích hoạt thành công!", success: true });
     } else {
-        res.status(400).json({ message: "OTP sai! (Gợi ý: nhập 123456)", success: false });
+        res.status(400).json({ message: "OTP sai! (Gợi ý: 123456)", success: false });
     }
 });
 
-// 3. ĐĂNG NHẬP (Login)
-// Input: { "username": "...", "password": "..." }
+// [API 3] ĐĂNG NHẬP
+// URL: /api/login
+// Body: { "username": "...", "password": "..." }
 app.post('/api/login', (req, res) => {
     const { username, password } = req.body;
 
-    // ⚠️ Note cho dân ATTT: Ở đây đang so sánh plain text để demo.
-    // Thực tế phải dùng bcrypt.compare(password, db_hash)
+    // Select từ bảng 'users'
     const sql = "SELECT * FROM users WHERE username = ? AND password = ?";
 
     pool.query(sql, [username, password], (err, results) => {
@@ -97,13 +91,13 @@ app.post('/api/login', (req, res) => {
 
         if (results.length > 0) {
             const user = results[0];
-            // Xóa password khỏi object trả về để bảo mật
+            // Xóa password trước khi trả về để bảo mật
             delete user.password;
 
             res.json({
                 message: "Đăng nhập thành công!",
                 success: true,
-                user: user // Trả về thông tin user để lưu vào SharedPreferences trên Android
+                user: user // Trả về object chứa user_id, full_name, role...
             });
         } else {
             res.status(401).json({ message: "Sai tài khoản hoặc mật khẩu!", success: false });
@@ -111,8 +105,8 @@ app.post('/api/login', (req, res) => {
     });
 });
 
-// 4. LẤY DANH MỤC (Cho trang Main - Horizontal List)
-// Output: Danh sách [ {category_id, name, image_url}, ... ]
+// [API 4] LẤY DANH MỤC
+// URL: /api/categories
 app.get('/api/categories', (req, res) => {
     const sql = "SELECT * FROM categories";
     pool.query(sql, (err, results) => {
@@ -121,21 +115,23 @@ app.get('/api/categories', (req, res) => {
     });
 });
 
-// 5. LỌC SẢN PHẨM (Lazy Load + Sort Price ASC)
-// Link: /api/filter?category_id=1&page=1&limit=10
+// [API 5] LỌC SẢN PHẨM (Có Lazy Load + Sắp xếp giá)
+// URL: /api/filter?category_id=1&page=1&limit=10
 app.get('/api/filter', (req, res) => {
     const category_id = req.query.category_id;
-
-    // Xử lý phân trang (Pagination)
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const offset = (page - 1) * limit;
 
     if (!category_id) {
-        return res.status(400).json({ message: "Thiếu category_id!" });
+        return res.status(400).json({ message: "Thiếu category_id!", success: false });
     }
 
-    // Logic: Lấy sản phẩm active -> Theo Cate -> Sắp xếp giá tăng dần -> Phân trang
+    // Query chuẩn với schema của mày:
+    // - Lọc theo category_id
+    // - Lọc is_active = 1 (chỉ lấy món đang bán)
+    // - Sắp xếp price tăng dần (ASC)
+    // - Phân trang (LIMIT, OFFSET)
     const sql = `
         SELECT * FROM products 
         WHERE category_id = ? AND is_active = 1
@@ -149,7 +145,7 @@ app.get('/api/filter', (req, res) => {
     });
 });
 
-// --- KHỞI CHẠY SERVER ---
+// --- 4. KHỞI CHẠY ---
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`Server đang chạy tại port ${PORT}`);
