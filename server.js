@@ -10,11 +10,11 @@ app.use(express.json()); // Để đọc được JSON từ Body gửi lên
 // --- 1. KẾT NỐI DATABASE (Aiven) ---
 // Nhớ thay password của mày vào đây
 const pool = mysql.createPool({
-    host: 'demo-mysql-thang-ban.aivencloud.com', // Thay Host của mày
+    host: 'mysql-ngbao261205-ngbao261205-6e4d.c.aivencloud.com', // Thay Host của mày
     user: 'avnadmin',                              // Thay User
-    password: 'password_cua_may',                  // Thay Password
+    password: 'AVNS_F_EwcCD-7paNho7tIMg',                  // Thay Password
     database: 'food_delivery_db',                  // Tên DB
-    port: 26379,                                   // Port
+    port: 11429,                                   // Port
     ssl: { rejectUnauthorized: false },            // SSL
     waitForConnections: true,
     connectionLimit: 10,
