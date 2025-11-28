@@ -175,3 +175,18 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`Server đang chạy tại port ${PORT}`);
 });
+
+// --- 5. KEEP ALIVE (PING RENDER) ---
+const https = require('https');
+
+function keepAlive() {
+    const url = 'https://food-api-backend-lerp.onrender.com';
+    https.get(url, (res) => {
+        console.log(`Ping sent to ${url} - Status: ${res.statusCode}`);
+    }).on('error', (e) => {
+        console.error(`Ping error: ${e.message}`);
+    });
+}
+
+// Ping mỗi 10 phút (10 * 60 * 1000 ms)
+setInterval(keepAlive, 10 * 60 * 1000);
