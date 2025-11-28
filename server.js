@@ -1,6 +1,7 @@
 const express = require('express');
 const mysql = require('mysql2');
 const cors = require('cors');
+require('dotenv').config(); // Load biến môi trường từ .env
 const app = express();
 
 // --- 1. CẤU HÌNH ---
@@ -10,11 +11,11 @@ app.use(express.json()); // Để đọc JSON từ body request
 // --- 2. KẾT NỐI DATABASE (AIVEN) ---
 // ⚠️ QUAN TRỌNG: Thay thông tin của mày vào đây
 const pool = mysql.createPool({
-    host: 'mysql-ngbao261205-ngbao261205-6e4d.c.aivencloud.com', // 1. Host
-    user: 'avnadmin',                              // 2. User
-    password: 'AVNS_F_EwcCD-7paNho7tIMg',                  // 3. Password (Aiven)
-    database: 'food_delivery_db',                  // 4. Tên DB
-    port: 11429,                                     // <-- Thay PORT (thường là 26379 hoặc số khác)
+    host: process.env.DB_HOST, // 1. Host
+    user: process.env.DB_USER,                              // 2. User
+    password: process.env.DB_PASSWORD,                  // 3. Password (Aiven)
+    database: process.env.DB_NAME,                  // 4. Tên DB
+    port: process.env.DB_PORT,                                     // <-- Thay PORT (thường là 26379 hoặc số khác)
     ssl: { rejectUnauthorized: false },            // Bắt buộc với Aiven
     waitForConnections: true,
     connectionLimit: 10,
