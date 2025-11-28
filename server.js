@@ -181,7 +181,7 @@ app.listen(PORT, () => {
 const https = require('https');
 
 function keepAlive() {
-    const url = 'https://food-api-backend-lerp.onrender.com';
+    const url = 'https://food-delivery-api-4zc2.onrender.com';
     https.get(url, (res) => {
         console.log(`Ping sent to ${url} - Status: ${res.statusCode}`);
     }).on('error', (e) => {
