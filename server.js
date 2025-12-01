@@ -189,5 +189,5 @@ function keepAlive() {
     });
 }
 
-// Ping mỗi 10 phút (10 * 60 * 1000 ms)
-setInterval(keepAlive, 10 * 60 * 1000);
+// Ping mỗi 5 phút (5 * 60 * 1000 ms)
+setInterval(keepAlive, 5 * 60 * 1000);
