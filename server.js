@@ -1,28 +1,40 @@
 const express = require('express');
 const mysql = require('mysql2');
 const cors = require('cors');
-require('dotenv').config(); // Load biến môi trường từ .env
+const nodemailer = require('nodemailer'); // Thêm nodemailer
+require('dotenv').config();
 const app = express();
 
 // --- 1. CẤU HÌNH ---
-app.use(cors()); // Cho phép Android gọi vào
-app.use(express.json()); // Để đọc JSON từ body request
+app.use(cors());
+app.use(express.json());
 
-// --- 2. KẾT NỐI DATABASE (AIVEN) ---
-// ⚠️ QUAN TRỌNG: Thay thông tin của mày vào đây
+// --- KHO LƯU TRỮ OTP TẠM THỜI ---
+// Key: email, Value: { otp, data, expires }
+const otpStore = new Map();
+
+// --- CẤU HÌNH GỬI EMAIL (NODEMAILER) ---
+const transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+        user: process.env.EMAIL_USER, // Lấy từ file .env
+        pass: process.env.EMAIL_PASS  // Lấy từ file .env
+    }
+});
+
+// --- 2. KẾT NỐI DATABASE ---
 const pool = mysql.createPool({
-    host: process.env.DB_HOST, // 1. Host
-    user: process.env.DB_USER,                              // 2. User
-    password: process.env.DB_PASSWORD,                  // 3. Password (Aiven)
-    database: process.env.DB_NAME,                  // 4. Tên DB
-    port: process.env.DB_PORT,                                     // <-- Thay PORT (thường là 26379 hoặc số khác)
-    ssl: { rejectUnauthorized: false },            // Bắt buộc với Aiven
+    host: process.env.DB_HOST,
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    database: process.env.DB_NAME,
+    port: process.env.DB_PORT,
+    ssl: { rejectUnauthorized: false },
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0
 });
 
-// Test kết nối ngay khi chạy server
 pool.getConnection((err, connection) => {
     if (err) {
         console.error('❌ Lỗi kết nối Database:', err.message);
@@ -34,62 +46,108 @@ pool.getConnection((err, connection) => {
 
 // --- 3. CÁC API (ENDPOINTS) ---
 
-// [API 0] Trang chủ (Để fix lỗi Cannot GET /)
 app.get('/', (req, res) => {
     res.send('<h1 style="color:green; text-align:center">🚀 Server Food App đang chạy ngon lành!</h1>');
 });
 
-// [API 1] ĐĂNG KÝ
-// URL: /api/register
-// Body: { "username": "a", "password": "b", "full_name": "c", "phone": "d" }
-app.post('/api/register', (req, res) => {
-    const { username, password, full_name, phone } = req.body;
+// [API 1] GỬI OTP ĐỂ XÁC THỰC ĐĂNG KÝ
+// URL: /api/otp/send
+// Body: { "username": "a", "password": "b", "full_name": "c", "phone": "d", "email": "e@mail.com" }
+app.post('/api/otp/send', (req, res) => {
+    const { username, password, full_name, phone, email } = req.body;
 
     // Validate
-    if (!username || !password) {
-        return res.status(400).json({ message: "Thiếu username hoặc password!", success: false });
+    if (!username || !password || !email) {
+        return res.status(400).json({ message: "Thiếu username, password hoặc email!", success: false });
     }
 
-    // Insert vào bảng 'users'
-    // Mặc định role là 'customer'
-    const sql = "INSERT INTO users (username, password, full_name, phone, role) VALUES (?, ?, ?, ?, 'customer')";
-
-    pool.query(sql, [username, password, full_name, phone], (err, result) => {
+    // 1. Kiểm tra xem username hoặc email đã tồn tại chưa
+    const checkSql = "SELECT * FROM users WHERE username = ? OR email = ?";
+    pool.query(checkSql, [username, email], (err, results) => {
         if (err) {
-            // Lỗi trùng username
+            return res.status(500).json({ error: err.message, success: false });
+        }
+        if (results.length > 0) {
+            return res.status(409).json({ message: "Username hoặc Email đã được sử dụng!", success: false });
+        }
+
+        // 2. Tạo mã OTP ngẫu nhiên (6 chữ số)
+        const otp = Math.floor(100000 + Math.random() * 900000).toString();
+        const expirationTime = Date.now() + 5 * 60 * 1000; // Hết hạn sau 5 phút
+
+        // 3. Lưu tạm thông tin
+        otpStore.set(email, {
+            otp: otp,
+            data: { username, password, full_name, phone, email },
+            expires: expirationTime
+        });
+
+        // 4. Gửi email
+        const mailOptions = {
+            from: process.env.EMAIL_USER,
+            to: email,
+            subject: 'Mã xác thực đăng ký tài khoản Food App',
+            text: `Mã OTP của bạn là: ${otp}. Mã này có hiệu lực trong 5 phút.`
+        };
+
+        transporter.sendMail(mailOptions, (error, info) => {
+            if (error) {
+                console.error("Lỗi gửi email:", error);
+                return res.status(500).json({ message: "Gửi email thất bại.", success: false });
+            }
+            res.json({ message: `Mã OTP đã được gửi đến ${email}.`, success: true });
+        });
+    });
+});
+
+// [API 2] XÁC THỰC OTP VÀ HOÀN TẤT ĐĂNG KÝ
+// URL: /api/otp/verify
+// Body: { "email": "e@mail.com", "otp": "123456" }
+app.post('/api/otp/verify', (req, res) => {
+    const { email, otp } = req.body;
+
+    if (!email || !otp) {
+        return res.status(400).json({ message: "Thiếu email hoặc OTP!", success: false });
+    }
+
+    const storedOtpData = otpStore.get(email);
+
+    // Kiểm tra OTP có tồn tại không
+    if (!storedOtpData) {
+        return res.status(400).json({ message: "Xác thực thất bại. Vui lòng thử lại.", success: false });
+    }
+
+    // Kiểm tra OTP có hết hạn không
+    if (Date.now() > storedOtpData.expires) {
+        otpStore.delete(email); // Xóa OTP hết hạn
+        return res.status(400).json({ message: "Mã OTP đã hết hạn!", success: false });
+    }
+
+    // Kiểm tra OTP có đúng không
+    if (storedOtpData.otp !== otp) {
+        return res.status(400).json({ message: "Mã OTP không chính xác!", success: false });
+    }
+
+    // Nếu mọi thứ đều đúng -> Tạo tài khoản
+    const { username, password, full_name, phone } = storedOtpData.data;
+    const sql = "INSERT INTO users (username, password, full_name, phone, email, role) VALUES (?, ?, ?, ?, ?, 'customer')";
+
+    pool.query(sql, [username, password, full_name, phone, email], (err, result) => {
+        if (err) {
+            // Lỗi trùng lặp (phòng trường hợp race condition)
             if (err.code === 'ER_DUP_ENTRY') {
                 return res.status(409).json({ message: "Tài khoản đã tồn tại!", success: false });
             }
             return res.status(500).json({ error: err.message, success: false });
         }
-        res.json({ message: "Đăng ký thành công! Vui lòng nhập OTP.", success: true });
+
+        // Xóa OTP đã sử dụng
+        otpStore.delete(email);
+
+        res.json({ message: "Đăng ký và xác thực thành công!", success: true });
     });
 });
 
-// [API 2.1] GỬI MÃ OTP (Giả lập)
-// URL: /api/otp/send
-// Body: { "phone": "..." }
-app.post('/api/otp/send', (req, res) => {
-    const { phone } = req.body;
-    if (!phone) {
-        return res.status(400).json({ message: "Thiếu số điện thoại!", success: false });
-    }
-    // Giả lập gửi OTP thành công
-    res.json({ message: "Mã OTP đã được gửi đến " + phone, success: true, otp: "123456" });
-});
-
-
-// [API 2.2] XÁC THỰC OTP (Giả lập)
-// URL: /api/otp/verify
-// Body: { "otp": "123456" }
-app.post('/api/otp/verify', (req, res) => {
-    const { otp } = req.body;
-    if (otp === "123456") {
-        res.json({ message: "Kích hoạt thành công!", success: true });
-    } else {
-        res.status(400).json({ message: "OTP sai! (Gợi ý: 123456)", success: false });
-    }
-});
 
 // [API 3] ĐĂNG NHẬP
 // URL: /api/login
@@ -141,11 +199,6 @@ app.get('/api/filter', (req, res) => {
         return res.status(400).json({ message: "Thiếu category_id!", success: false });
     }
 
-    // Query chuẩn với schema của mày:
-    // - Lọc theo category_id
-    // - Lọc is_active = 1 (chỉ lấy món đang bán)
-    // - Sắp xếp price tăng dần (ASC)
-    // - Phân trang (LIMIT, OFFSET)
     const sql = `
         SELECT * FROM products 
         WHERE category_id = ? AND is_active = 1
@@ -162,7 +215,7 @@ app.get('/api/filter', (req, res) => {
 // --- [API MỚI] 6. LẤY THÔNG TIN PROFILE ---
 // URL: /api/profile/1  (Số 1 là user_id)
 app.get('/api/profile/:id', (req, res) => {
-    const userId = req.params.id; // Lấy ID từ trên link
+    const userId = req.params.id;
 
     if (!userId) return res.status(400).json({ message: "Thiếu User ID", success: false });
 
@@ -172,11 +225,11 @@ app.get('/api/profile/:id', (req, res) => {
 
         if (results.length > 0) {
             const user = results[0];
-            delete user.password; // Bảo mật: Không trả về password
+            delete user.password;
 
             res.json({
                 success: true,
-                user: user // Trả về object user
+                user: user
             });
         } else {
             res.status(404).json({ message: "Không tìm thấy user này!", success: false });
@@ -202,5 +255,4 @@ function keepAlive() {
     });
 }
 
-// Ping mỗi 5 phút (5 * 60 * 1000 ms)
 setInterval(keepAlive, 5 * 60 * 1000);
