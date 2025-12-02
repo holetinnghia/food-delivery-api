@@ -66,10 +66,23 @@ app.post('/api/register', (req, res) => {
     });
 });
 
-// [API 2] XÁC THỰC OTP (Giả lập)
-// URL: /api/verify-otp
+// [API 2.1] GỬI MÃ OTP (Giả lập)
+// URL: /api/otp/send
+// Body: { "phone": "..." }
+app.post('/api/otp/send', (req, res) => {
+    const { phone } = req.body;
+    if (!phone) {
+        return res.status(400).json({ message: "Thiếu số điện thoại!", success: false });
+    }
+    // Giả lập gửi OTP thành công
+    res.json({ message: "Mã OTP đã được gửi đến " + phone, success: true, otp: "123456" });
+});
+
+
+// [API 2.2] XÁC THỰC OTP (Giả lập)
+// URL: /api/otp/verify
 // Body: { "otp": "123456" }
-app.post('/api/verify-otp', (req, res) => {
+app.post('/api/otp/verify', (req, res) => {
     const { otp } = req.body;
     if (otp === "123456") {
         res.json({ message: "Kích hoạt thành công!", success: true });
