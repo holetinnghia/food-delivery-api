@@ -1,7 +1,8 @@
 const express = require('express');
 const mysql = require('mysql2');
 const cors = require('cors');
-const nodemailer = require('nodemailer'); // Thêm nodemailer
+// const nodemailer = require('nodemailer'); // Không dùng nodemailer nữa
+const sgMail = require('@sendgrid/mail'); // SỬ DỤNG THƯ VIỆN CHÍNH THỨC CỦA SENDGRID
 require('dotenv').config();
 const app = express();
 
@@ -10,25 +11,13 @@ app.use(cors());
 app.use(express.json());
 
 // --- KHO LƯU TRỮ OTP TẠM THỜI ---
-// Key: email, Value: { otp, data, expires }
 const otpStore = new Map();
 
-// --- CẤU HÌNH GỬI EMAIL (NODEMAILER) ---
-// !!! QUAN TRỌNG: SỬ DỤNG DỊCH VỤ GỬI EMAIL CHUYÊN DỤNG (VÍ DỤ: SENDGRID)
-// Các nền tảng hosting như Render thường chặn kết nối SMTP trực tiếp tới Gmail.
+// --- CẤU HÌNH GỬI EMAIL (SENDGRID API) ---
 // Hướng dẫn:
-// 1. Đăng ký tài khoản SendGrid (hoặc Brevo, Mailgun).
-// 2. Tạo một API Key.
-// 3. Thêm API Key vào biến môi trường (file .env) với tên là SENDGRID_API_KEY.
-const transporter = nodemailer.createTransport({
-    host: 'smtp.sendgrid.net', // Máy chủ SMTP của SendGrid
-    port: 587,
-    secure: false, // Sử dụng STARTTLS
-    auth: {
-        user: 'apikey', // Đây là giá trị cố định cho SendGrid, không thay đổi
-        pass: process.env.SENDGRID_API_KEY // Lấy API Key từ biến môi trường
-    }
-});
+// 1. Chạy `npm install @sendgrid/mail`
+// 2. Đảm bảo biến môi trường SENDGRID_API_KEY đã được thiết lập trên Render.
+sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
 
 // --- 2. KẾT NỐI DATABASE ---
@@ -60,36 +49,29 @@ app.get('/', (req, res) => {
 });
 
 // [API 1] GỬI OTP ĐỂ XÁC THỰC ĐĂNG KÝ
-// URL: /api/otp/send
-// Body: { "username": "a", "password": "b", "full_name": "c", "phone": "d", "email": "e@mail.com" }
-app.post('/api/otp/send', (req, res) => {
-    console.log("--- [BẮT ĐẦU LUỒNG GỬI EMAIL] ---");
+app.post('/api/otp/send', async (req, res) => { // Chuyển sang async/await để dễ xử lý
+    console.log("--- [BẮT ĐẦU LUỒNG GỬI EMAIL - DÙNG SENDGRID API] ---");
     console.log("[1] Client yêu cầu gửi OTP với dữ liệu:", req.body);
     const { username, password, full_name, phone, email } = req.body;
 
-    // Validate
     if (!username || !password || !email) {
         console.error("[LỖI] Dữ liệu không hợp lệ:", { username, password, email });
         return res.status(400).json({ message: "Thiếu username, password hoặc email!", success: false });
     }
 
-    // 1. Kiểm tra xem username hoặc email đã tồn tại chưa
-    const checkSql = "SELECT * FROM users WHERE username = ? OR email = ?";
-    pool.query(checkSql, [username, email], (err, results) => {
-        if (err) {
-            console.error("[LỖI] Lỗi truy vấn database:", err);
-            return res.status(500).json({ error: err.message, success: false });
-        }
+    try {
+        // 1. Kiểm tra xem username hoặc email đã tồn tại chưa
+        const checkSql = "SELECT * FROM users WHERE username = ? OR email = ?";
+        const [results] = await pool.promise().query(checkSql, [username, email]);
+
         if (results.length > 0) {
             console.warn("[CẢNH BÁO] Username hoặc Email đã tồn tại:", { username, email });
             return res.status(409).json({ message: "Username hoặc Email đã được sử dụng!", success: false });
         }
 
-        // 2. Tạo mã OTP ngẫu nhiên (6 chữ số)
+        // 2. Tạo và lưu OTP
         const otp = Math.floor(100000 + Math.random() * 900000).toString();
-        const expirationTime = Date.now() + 5 * 60 * 1000; // Hết hạn sau 5 phút
-
-        // 3. Lưu tạm thông tin
+        const expirationTime = Date.now() + 5 * 60 * 1000;
         otpStore.set(email, {
             otp: otp,
             data: { username, password, full_name, phone, email },
@@ -97,28 +79,33 @@ app.post('/api/otp/send', (req, res) => {
         });
         console.log(`[2] Đã tạo và lưu OTP: ${otp} cho email: ${email}`);
 
-        // 4. Gửi email
-        const mailOptions = {
-            from: process.env.EMAIL_USER, // Đây phải là email bạn đã xác thực trên SendGrid
+        // 3. Chuẩn bị và gửi email qua SendGrid API
+        const msg = {
             to: email,
+            from: process.env.EMAIL_USER, // Email này PHẢI là "Verified Sender" trên SendGrid
             subject: 'Mã xác thực đăng ký tài khoản Food App',
-            text: `Mã OTP của bạn là: ${otp}. Mã này có hiệu lực trong 5 phút.`
+            text: `Mã OTP của bạn là: ${otp}. Mã này có hiệu lực trong 5 phút.`,
+            html: `<strong>Mã OTP của bạn là: ${otp}</strong>. Mã này có hiệu lực trong 5 phút.`,
         };
-        console.log("[3] Chuẩn bị gửi email đến SendGrid với thông tin:", mailOptions);
+        console.log("[3] Chuẩn bị gửi email đến SendGrid API với thông tin:", msg);
 
-        transporter.sendMail(mailOptions, (error, info) => {
-            if (error) {
-                console.error("[4A - LỖI] SendGrid phản hồi lỗi:", error);
-                console.log("--- [KẾT THÚC LUỒNG GỬI EMAIL - THẤT BẠI] ---");
-                return res.status(500).json({ message: "Gửi email thất bại.", success: false, error_details: error });
-            }
-            
-            console.log("[4B - THÀNH CÔNG] SendGrid phản hồi thành công:", info);
-            console.log("--- [KẾT THÚC LUỒNG GỬI EMAIL - THÀNH CÔNG] ---");
-            res.json({ message: `Mã OTP đã được gửi đến ${email}.`, success: true });
-        });
-    });
+        const sendGridResponse = await sgMail.send(msg);
+        
+        console.log("[4B - THÀNH CÔNG] SendGrid API phản hồi thành công:", sendGridResponse[0].statusCode);
+        console.log("--- [KẾT THÚC LUỒNG GỬI EMAIL - THÀNH CÔNG] ---");
+        res.json({ message: `Mã OTP đã được gửi đến ${email}.`, success: true });
+
+    } catch (error) {
+        console.error("[4A - LỖI] SendGrid API hoặc hệ thống báo lỗi:", error);
+        if (error.response) {
+            // Lỗi cụ thể từ SendGrid API sẽ nằm ở đây
+            console.error("Chi tiết lỗi từ SendGrid:", error.response.body);
+        }
+        console.log("--- [KẾT THÚC LUỒNG GỬI EMAIL - THẤT BẠI] ---");
+        res.status(500).json({ message: "Gửi email thất bại.", success: false, error_details: error });
+    }
 });
+
 
 // [API 2] XÁC THỰC OTP VÀ HOÀN TẤT ĐĂNG KÝ
 // URL: /api/otp/verify
