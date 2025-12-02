@@ -14,10 +14,11 @@ app.use(express.json());
 const otpStore = new Map();
 
 // --- CẤU HÌNH GỬI EMAIL (NODEMAILER) ---
+// Thử với port 587 và STARTTLS
 const transporter = nodemailer.createTransport({
     host: 'smtp.gmail.com',
-    port: 465,
-    secure: true, // true for 465, false for other ports
+    port: 587,
+    secure: false, // `secure:false` vì port 587 sử dụng STARTTLS
     auth: {
         user: process.env.EMAIL_USER, // Lấy từ file .env
         pass: process.env.EMAIL_PASS  // Lấy từ file .env
