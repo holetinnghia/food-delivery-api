@@ -14,18 +14,20 @@ app.use(express.json());
 const otpStore = new Map();
 
 // --- CẤU HÌNH GỬI EMAIL (NODEMAILER) ---
-// Thử với port 587 và STARTTLS
+// !!! QUAN TRỌNG: SỬ DỤNG DỊCH VỤ GỬI EMAIL CHUYÊN DỤNG (VÍ DỤ: SENDGRID)
+// Các nền tảng hosting như Render thường chặn kết nối SMTP trực tiếp tới Gmail.
+// Hướng dẫn:
+// 1. Đăng ký tài khoản SendGrid (hoặc Brevo, Mailgun).
+// 2. Tạo một API Key.
+// 3. Thêm API Key vào biến môi trường (file .env) với tên là SENDGRID_API_KEY.
 const transporter = nodemailer.createTransport({
-    host: 'smtp.gmail.com',
+    host: 'smtp.sendgrid.net', // Máy chủ SMTP của SendGrid
     port: 587,
-    secure: false, // `secure:false` vì port 587 sử dụng STARTTLS
+    secure: false, // Sử dụng STARTTLS
     auth: {
-        user: process.env.EMAIL_USER, // Lấy từ file .env
-        pass: process.env.EMAIL_PASS  // Lấy từ file .env
-    },
-    connectionTimeout: 10000, // 10 seconds
-    greetingTimeout: 10000,   // 10 seconds
-    socketTimeout: 10000      // 10 seconds
+        user: 'apikey', // Đây là giá trị cố định cho SendGrid, không thay đổi
+        pass: process.env.SENDGRID_API_KEY // Lấy API Key từ biến môi trường
+    }
 });
 
 
@@ -91,7 +93,7 @@ app.post('/api/otp/send', (req, res) => {
 
         // 4. Gửi email
         const mailOptions = {
-            from: process.env.EMAIL_USER,
+            from: process.env.EMAIL_USER, // Đây phải là email bạn đã xác thực trên SendGrid
             to: email,
             subject: 'Mã xác thực đăng ký tài khoản Food App',
             text: `Mã OTP của bạn là: ${otp}. Mã này có hiệu lực trong 5 phút.`
@@ -100,7 +102,7 @@ app.post('/api/otp/send', (req, res) => {
         transporter.sendMail(mailOptions, (error, info) => {
             if (error) {
                 console.error("Lỗi gửi email:", error);
-                return res.status(500).json({ message: "Gửi email thất bại.", success: false });
+                return res.status(500).json({ message: "Gửi email thất bại.", success: false, error_details: error });
             }
             res.json({ message: `Mã OTP đã được gửi đến ${email}.`, success: true });
         });
