@@ -15,12 +15,18 @@ const otpStore = new Map();
 
 // --- CẤU HÌNH GỬI EMAIL (NODEMAILER) ---
 const transporter = nodemailer.createTransport({
-    service: 'gmail',
+    host: 'smtp.gmail.com',
+    port: 465,
+    secure: true, // true for 465, false for other ports
     auth: {
         user: process.env.EMAIL_USER, // Lấy từ file .env
         pass: process.env.EMAIL_PASS  // Lấy từ file .env
-    }
+    },
+    connectionTimeout: 10000, // 10 seconds
+    greetingTimeout: 10000,   // 10 seconds
+    socketTimeout: 10000      // 10 seconds
 });
+
 
 // --- 2. KẾT NỐI DATABASE ---
 const pool = mysql.createPool({
