@@ -24,7 +24,6 @@ const pool = mysql.createPool({
     queueLimit: 0
 });
 
-// Kiểm tra kết nối DB đơn giản
 pool.getConnection((err, connection) => {
     if (err) {
         console.error('Kết nối Database thất bại:', err.message);
@@ -142,7 +141,6 @@ app.get('/api/filter', async (req, res) => {
 
     try {
         const sql = "SELECT * FROM products WHERE category_id = ? AND is_active = 1 ORDER BY price ASC LIMIT ? OFFSET ?";
-        // Lưu ý: limit và offset cần parse sang số nguyên để tránh lỗi syntax SQL
         const [results] = await pool.promise().query(sql, [category_id, parseInt(limit), parseInt(offset)]);
         res.json(results);
     } catch (err) {
